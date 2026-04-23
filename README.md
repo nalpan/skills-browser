@@ -1,4 +1,4 @@
-# skill_browser
+# skills-browser
 
 TUIブラウザ for SKILL.md files — シングルバイナリ、依存ゼロで動作。
 
@@ -11,28 +11,28 @@ TUIブラウザ for SKILL.md files — シングルバイナリ、依存ゼロ�
 go mod download
 
 # ローカル向けバイナリを生成
-make build          # → ./skill_browser
+make build          # → ./skills-browser
 
 # クロスコンパイル
-make build-linux    # → ./skill_browser_linux_amd64
-make build-mac      # → ./skill_browser_darwin_arm64 / amd64
-make build-windows  # → ./skill_browser_windows_amd64.exe
+make build-linux    # → ./skills-browser_linux_amd64
+make build-mac      # → ./skills-browser_darwin_arm64 / amd64
+make build-windows  # → ./skills-browser_windows_amd64.exe
 ```
 
 ### Docker でビルド（Go 不要）
 
 ```bash
-make docker-build   # → ./skill_browser_linux_amd64
+make docker-build   # → ./skills-browser_linux_amd64
 ```
 
 ## 使い方
 
 ```bash
 # デフォルト: カレントディレクトリを検索
-./skill_browser
+./skills-browser
 
 # ディレクトリを指定
-./skill_browser /path/to/your/repo/skills
+./skills-browser /path/to/your/repo/skills
 ```
 
 ## キーバインド

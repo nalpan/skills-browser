@@ -1,7 +1,7 @@
 .PHONY: build build-linux build-mac build-windows clean
 
-BINARY = skill_browser
-CMD    = ./cmd/skill_browser
+BINARY = skills-browser
+CMD    = .
 
 # ローカルビルド（現在のOS/ARCH向け）
 build:
@@ -20,9 +20,9 @@ build-windows:
 
 # Dockerでビルド（Go不要）
 docker-build:
-	docker build -t skill_browser .
-	docker create --name sb_tmp skill_browser
-	docker cp sb_tmp:/skill_browser ./$(BINARY)_linux_amd64
+	docker build -t skills-browser .
+	docker create --name sb_tmp skills-browser
+	docker cp sb_tmp:/skills-browser ./$(BINARY)_linux_amd64
 	docker rm sb_tmp
 
 clean:
