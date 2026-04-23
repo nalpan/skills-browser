@@ -564,7 +564,7 @@ func (m model) View() string {
 	// ── right pane: render full detail content, height adapts ──
 	var detailLines []string
 	if len(m.skills) > 0 {
-		detailLines = buildDetail(m.skills[m.selected], rw-4)
+		detailLines = buildDetail(m.skills[m.selected], rw-4, matchQuery)
 	}
 	rightContent := strings.Join(detailLines, "\n")
 	rightPaneStyle := borderStyle.Width(rw - 2)
@@ -630,20 +630,22 @@ func (m model) renderHintsLine() string {
 }
 
 // buildDetail returns the rendered lines for the right pane.
-func buildDetail(s Skill, width int) []string {
+// lowerQuery (already lower-cased) highlights matching substrings.
+func buildDetail(s Skill, width int, lowerQuery string) []string {
 	var lines []string
 
 	add := func(line string) { lines = append(lines, line) }
 	blank := func() { add("") }
+	plainStyle := lipgloss.NewStyle()
 
 	// Title
-	add(titleStyle.Render("  " + s.Name))
+	add("  " + highlightMatches(s.Name, lowerQuery, titleStyle, matchStyle))
 	blank()
 
 	// Description
 	add(labelStyle.Render("  Description"))
 	for _, l := range wordWrap(s.Description, width-4) {
-		add("  " + normalItemStyle.Render(l))
+		add("  " + highlightMatches(l, lowerQuery, normalItemStyle, matchStyle))
 	}
 	blank()
 
@@ -652,7 +654,7 @@ func buildDetail(s Skill, width int) []string {
 		add(labelStyle.Render("  Metadata"))
 		for k, v := range s.ExtraMeta {
 			for _, l := range wordWrap(k+": "+v, width-6) {
-				add("    " + metaStyle.Render(l))
+				add("    " + highlightMatches(l, lowerQuery, metaStyle, matchStyle))
 			}
 		}
 		blank()
@@ -664,7 +666,7 @@ func buildDetail(s Skill, width int) []string {
 		add(dimStyle.Render("    (none defined in SKILL.md)"))
 	} else {
 		for _, arg := range s.Arguments {
-			header := "    • " + arg.Name
+			header := "    • " + highlightMatches(arg.Name, lowerQuery, plainStyle, matchStyle)
 			if arg.Type != "" {
 				header += "  " + metaStyle.Render("("+arg.Type+")")
 			}
@@ -674,7 +676,7 @@ func buildDetail(s Skill, width int) []string {
 			add(header)
 			if arg.Description != "" {
 				for _, l := range wordWrap(arg.Description, width-10) {
-					add("        " + dimStyle.Render(l))
+					add("        " + highlightMatches(l, lowerQuery, dimStyle, matchStyle))
 				}
 			}
 		}
@@ -682,6 +684,43 @@ func buildDetail(s Skill, width int) []string {
 	blank()
 
 	return lines
+}
+
+// highlightMatches renders text with baseStyle, except occurrences of
+// lowerQuery (case-insensitive substring match) which use hlStyle.
+// Empty lowerQuery returns baseStyle.Render(text). Assumes byte length is
+// preserved by ToLower (true for ASCII and CJK — fine for our inputs).
+func highlightMatches(text, lowerQuery string, baseStyle, hlStyle lipgloss.Style) string {
+	if lowerQuery == "" || text == "" {
+		return baseStyle.Render(text)
+	}
+	lower := strings.ToLower(text)
+	if len(lower) != len(text) {
+		// ToLower changed byte length; fall back to plain styling to avoid
+		// slicing into the middle of a rune.
+		return baseStyle.Render(text)
+	}
+	qLen := len(lowerQuery)
+	var b strings.Builder
+	i := 0
+	for {
+		idx := strings.Index(lower[i:], lowerQuery)
+		if idx < 0 {
+			b.WriteString(baseStyle.Render(text[i:]))
+			break
+		}
+		abs := i + idx
+		if abs > i {
+			b.WriteString(baseStyle.Render(text[i:abs]))
+		}
+		end := abs + qLen
+		b.WriteString(hlStyle.Render(text[abs:end]))
+		i = end
+		if i >= len(text) {
+			break
+		}
+	}
+	return b.String()
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
