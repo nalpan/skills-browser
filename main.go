@@ -293,6 +293,10 @@ var (
 			Foreground(lipgloss.Color("#000000")).
 			Background(lipgloss.Color("#FFCC00"))
 
+	matchStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#FFAA44"))
+
 	normalItemStyle = lipgloss.NewStyle().
 			Foreground(white)
 
@@ -321,6 +325,13 @@ type model struct {
 	listScroll int
 	width      int
 	height     int
+
+	// vi-like search state
+	searchMode    bool   // true while typing query (after / or ?)
+	searchInput   string // buffer being typed in search mode
+	searchQuery   string // last submitted query (used by n/N)
+	searchDir     int    // 1 forward, -1 backward — direction of last search
+	searchMessage string // transient status (e.g., "Pattern not found")
 }
 
 func initialModel(skills []Skill) model {
@@ -334,9 +345,36 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.searchMode {
+			return m.updateSearchMode(msg), nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "/":
+			m.searchMode = true
+			m.searchDir = 1
+			m.searchInput = ""
+			m.searchMessage = ""
+			return m, nil
+		case "?":
+			m.searchMode = true
+			m.searchDir = -1
+			m.searchInput = ""
+			m.searchMessage = ""
+			return m, nil
+		case "n":
+			if m.searchQuery != "" {
+				m = m.findMatch(m.selected, m.searchDir, false)
+			}
+		case "N":
+			if m.searchQuery != "" {
+				dir := -m.searchDir
+				if dir == 0 {
+					dir = -1
+				}
+				m = m.findMatch(m.selected, dir, false)
+			}
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
@@ -382,6 +420,77 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateSearchMode(msg tea.KeyMsg) model {
+	switch msg.String() {
+	case "esc", "ctrl+c":
+		m.searchMode = false
+		m.searchInput = ""
+		m.searchMessage = ""
+		return m
+	case "enter":
+		m.searchMode = false
+		m.searchQuery = m.searchInput
+		m.searchInput = ""
+		if m.searchQuery != "" {
+			m = m.findMatch(m.selected, m.searchDir, true)
+		}
+		return m
+	case "backspace", "ctrl+h":
+		runes := []rune(m.searchInput)
+		if len(runes) > 0 {
+			m.searchInput = string(runes[:len(runes)-1])
+		}
+		return m
+	}
+	switch msg.Type {
+	case tea.KeyRunes:
+		m.searchInput += string(msg.Runes)
+	case tea.KeySpace:
+		m.searchInput += " "
+	}
+	return m
+}
+
+// skillMatches reports whether the skill's title or description contains the
+// (case-insensitive) query. Empty query never matches.
+func skillMatches(s Skill, lowerQuery string) bool {
+	if lowerQuery == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(s.Name), lowerQuery) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(s.Description), lowerQuery) {
+		return true
+	}
+	return false
+}
+
+// findMatch moves the selection to the next item that matches searchQuery
+// (against title or description), searching in the given direction. Wraps
+// around. If includeStart is true, the starting index itself is considered.
+func (m model) findMatch(start, dir int, includeStart bool) model {
+	if m.searchQuery == "" || len(m.skills) == 0 {
+		return m
+	}
+	q := strings.ToLower(m.searchQuery)
+	n := len(m.skills)
+	begin := start
+	if !includeStart {
+		begin = start + dir
+	}
+	for i := 0; i < n; i++ {
+		idx := ((begin+dir*i)%n + n) % n
+		if skillMatches(m.skills[idx], q) {
+			m.selected = idx
+			m.searchMessage = ""
+			return m.syncListScroll()
+		}
+	}
+	m.searchMessage = "Pattern not found: " + m.searchQuery
+	return m
+}
+
 // syncListScroll keeps listScroll in sync with selected — called only from Update.
 func (m model) syncListScroll() model {
 	h := m.innerHeight()
@@ -397,7 +506,7 @@ func (m model) syncListScroll() model {
 }
 
 func (m model) innerHeight() int {
-	h := m.height - 3 // footer(1) + border top(1) + border bottom(1)
+	h := m.height - 4 // footer(2) + border top(1) + border bottom(1)
 	if h < 1 {
 		return 1
 	}
@@ -427,13 +536,17 @@ func (m model) View() string {
 	innerH := m.innerHeight()
 
 	var leftItems []string
+	matchQuery := strings.ToLower(m.searchQuery)
 	for i := m.listScroll; i < m.listScroll+innerH && i < len(m.skills); i++ {
 		name := " " + m.skills[i].Name + " "
 		name = truncate(name, lw-4)
 		name = padRight(name, lw-4)
-		if i == m.selected {
+		switch {
+		case i == m.selected:
 			leftItems = append(leftItems, selectedStyle.Render(name))
-		} else {
+		case skillMatches(m.skills[i], matchQuery):
+			leftItems = append(leftItems, matchStyle.Render(name))
+		default:
 			leftItems = append(leftItems, normalItemStyle.Render(name))
 		}
 	}
@@ -463,16 +576,57 @@ func (m model) View() string {
 	// ── join panes (top-aligned so left list stays anchored) ──
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
-	// ── footer (header merged in) ──
-	footerLeft := fmt.Sprintf("  skill_browser   %d/%d  ", m.selected+1, len(m.skills))
-	footerRight := "  ↑/↓ j/k: select   PgUp/PgDn: page   g/G: top/bottom   q: quit  "
-	gap := m.width - len([]rune(footerLeft)) - len([]rune(footerRight))
-	if gap < 0 {
-		gap = 0
-	}
-	footer := footerStyle.Render(footerLeft + strings.Repeat(" ", gap) + footerRight)
+	// ── footer (also acts as vi-style command line) ──
+	footer := m.renderFooter()
 
 	return panes + "\n" + footer
+}
+
+func (m model) renderFooter() string {
+	statusLine := m.renderStatusLine()
+	hintsLine := m.renderHintsLine()
+	return statusLine + "\n" + hintsLine
+}
+
+// renderStatusLine builds the top line of the footer: vi-style command line
+// when typing a search, otherwise title + counter + last query/message.
+func (m model) renderStatusLine() string {
+	if m.searchMode {
+		prefix := "/"
+		if m.searchDir == -1 {
+			prefix = "?"
+		}
+		line := "  " + prefix + m.searchInput + "█"
+		return footerStyle.Render(padRight(line, m.width))
+	}
+
+	line := fmt.Sprintf("  skill_browser   %d/%d  ", m.selected+1, len(m.skills))
+	if m.searchMessage != "" {
+		line += " " + m.searchMessage + " "
+	} else if m.searchQuery != "" {
+		prefix := "/"
+		if m.searchDir == -1 {
+			prefix = "?"
+		}
+		line += " " + prefix + m.searchQuery + "  "
+	}
+	return footerStyle.Render(padRight(line, m.width))
+}
+
+// renderHintsLine builds the bottom line of the footer with key hints.
+// Picks a layout that fits the available width; falls back to a compact form.
+func (m model) renderHintsLine() string {
+	full := "  j/k: select   PgUp/PgDn: page   g/G: top/bottom   /: search   n/N: next/prev   q: quit  "
+	compact := "  j/k select   /: search   n/N next   q quit  "
+	minimal := "  j/k  /search  q quit  "
+
+	for _, hint := range []string{full, compact, minimal} {
+		if len([]rune(hint)) <= m.width {
+			return footerStyle.Render(padRight(hint, m.width))
+		}
+	}
+	cut := min(len(minimal), m.width)
+	return footerStyle.Render(padRight(minimal[:cut], m.width))
 }
 
 // buildDetail returns the rendered lines for the right pane.
