@@ -279,12 +279,6 @@ var (
 	special   = lipgloss.AdaptiveColor{Light: "#CC6600", Dark: "#FFAA44"}
 	white     = lipgloss.AdaptiveColor{Light: "#000000", Dark: "#EEEEEE"}
 
-	headerStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#000000")).
-			Background(lipgloss.Color("#00CCFF")).
-			Padding(0, 1)
-
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#000000")).
 			Background(lipgloss.Color("#00CCFF")).
@@ -322,12 +316,11 @@ var (
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 type model struct {
-	skills       []Skill
-	selected     int
-	listScroll   int
-	detailScroll int
-	width        int
-	height       int
+	skills     []Skill
+	selected   int
+	listScroll int
+	width      int
+	height     int
 }
 
 func initialModel(skills []Skill) model {
@@ -347,22 +340,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
-				m.detailScroll = 0
 				m = m.syncListScroll()
 			}
 		case "down", "j":
 			if m.selected < len(m.skills)-1 {
 				m.selected++
-				m.detailScroll = 0
 				m = m.syncListScroll()
 			}
 		case "pgup", "ctrl+u":
-			m.detailScroll -= m.innerHeight()
-			if m.detailScroll < 0 {
-				m.detailScroll = 0
+			step := m.innerHeight()
+			if step < 1 {
+				step = 1
 			}
+			m.selected -= step
+			if m.selected < 0 {
+				m.selected = 0
+			}
+			m = m.syncListScroll()
 		case "pgdown", "ctrl+d":
-			m.detailScroll += m.innerHeight()
+			step := m.innerHeight()
+			if step < 1 {
+				step = 1
+			}
+			m.selected += step
+			if m.selected > len(m.skills)-1 {
+				m.selected = len(m.skills) - 1
+			}
+			m = m.syncListScroll()
+		case "home", "g":
+			m.selected = 0
+			m = m.syncListScroll()
+		case "end", "G":
+			m.selected = len(m.skills) - 1
+			m = m.syncListScroll()
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -387,15 +397,11 @@ func (m model) syncListScroll() model {
 }
 
 func (m model) innerHeight() int {
-	h := m.height - 4 // header(1) + footer(1) + border top(1) + border bottom(1)
+	h := m.height - 3 // footer(1) + border top(1) + border bottom(1)
 	if h < 1 {
 		return 1
 	}
 	return h
-}
-
-func (m model) detailHeight() int {
-	return m.innerHeight()
 }
 
 func (m model) leftWidth() int {
@@ -417,11 +423,7 @@ func (m model) View() string {
 	lw := m.leftWidth()
 	rw := m.width - lw
 
-	// ── header ──
-	header := headerStyle.Render("  skill_browser  ↑/↓ j/k select  PgUp/PgDn scroll  q quit  ")
-	header = padRight(header, m.width)
-
-	// ── left pane ──
+	// ── left pane: fixed height, list scrolls inside ──
 	innerH := m.innerHeight()
 
 	var leftItems []string
@@ -446,53 +448,31 @@ func (m model) View() string {
 		Height(innerH).
 		Render(leftContent)
 
-	// ── right pane ──
+	// ── right pane: render full detail content, height adapts ──
 	var detailLines []string
 	if len(m.skills) > 0 {
 		detailLines = buildDetail(m.skills[m.selected], rw-4)
 	}
+	rightContent := strings.Join(detailLines, "\n")
+	rightPaneStyle := borderStyle.Width(rw - 2)
+	if len(detailLines) < innerH {
+		rightPaneStyle = rightPaneStyle.Height(innerH)
+	}
+	rightPane := rightPaneStyle.Render(rightContent)
 
-	// clamp scroll
-	maxScroll := len(detailLines) - innerH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.detailScroll > maxScroll {
-		m.detailScroll = maxScroll
-	}
-
-	visible := detailLines
-	if m.detailScroll < len(detailLines) {
-		visible = detailLines[m.detailScroll:]
-	} else {
-		visible = nil
-	}
-	if len(visible) > innerH {
-		visible = visible[:innerH]
-	}
-	for len(visible) < innerH {
-		visible = append(visible, "")
-	}
-
-	rightContent := strings.Join(visible, "\n")
-	rightPane := borderStyle.
-		Width(rw - 2).
-		Height(innerH).
-		Render(rightContent)
-
-	// ── join panes ──
+	// ── join panes (top-aligned so left list stays anchored) ──
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 
-	// ── footer ──
-	footerLeft := fmt.Sprintf("  %d/%d  ", m.selected+1, len(m.skills))
-	footerRight := "  ↑/↓ j/k: select skill   PgUp/PgDn: scroll detail   q: quit  "
+	// ── footer (header merged in) ──
+	footerLeft := fmt.Sprintf("  skill_browser   %d/%d  ", m.selected+1, len(m.skills))
+	footerRight := "  ↑/↓ j/k: select   PgUp/PgDn: page   g/G: top/bottom   q: quit  "
 	gap := m.width - len([]rune(footerLeft)) - len([]rune(footerRight))
 	if gap < 0 {
 		gap = 0
 	}
 	footer := footerStyle.Render(footerLeft + strings.Repeat(" ", gap) + footerRight)
 
-	return header + "\n" + panes + "\n" + footer
+	return panes + "\n" + footer
 }
 
 // buildDetail returns the rendered lines for the right pane.
@@ -617,4 +597,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
