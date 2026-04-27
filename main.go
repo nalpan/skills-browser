@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 )
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -274,10 +275,10 @@ func loadSkills(dir string) ([]Skill, error) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 var (
-	subtle    = lipgloss.AdaptiveColor{Light: "#888888", Dark: "#666666"}
-	highlight = lipgloss.AdaptiveColor{Light: "#00AACC", Dark: "#00CCFF"}
-	special   = lipgloss.AdaptiveColor{Light: "#CC6600", Dark: "#FFAA44"}
-	white     = lipgloss.AdaptiveColor{Light: "#000000", Dark: "#EEEEEE"}
+	subtle    = compat.AdaptiveColor{Light: lipgloss.Color("#888888"), Dark: lipgloss.Color("#666666")}
+	highlight = compat.AdaptiveColor{Light: lipgloss.Color("#00AACC"), Dark: lipgloss.Color("#00CCFF")}
+	special   = compat.AdaptiveColor{Light: lipgloss.Color("#CC6600"), Dark: lipgloss.Color("#FFAA44")}
+	white     = compat.AdaptiveColor{Light: lipgloss.Color("#000000"), Dark: lipgloss.Color("#EEEEEE")}
 
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#000000")).
@@ -442,11 +443,8 @@ func (m model) updateSearchMode(msg tea.KeyMsg) model {
 		}
 		return m
 	}
-	switch msg.Type {
-	case tea.KeyRunes:
-		m.searchInput += string(msg.Runes)
-	case tea.KeySpace:
-		m.searchInput += " "
+	if text := msg.Key().Text; text != "" {
+		m.searchInput += text
 	}
 	return m
 }
@@ -524,9 +522,9 @@ func (m model) leftWidth() int {
 	return w
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.width == 0 {
-		return "Loading..."
+		return tea.NewView("Loading...")
 	}
 
 	lw := m.leftWidth()
@@ -579,7 +577,9 @@ func (m model) View() string {
 	// ── footer (also acts as vi-style command line) ──
 	footer := m.renderFooter()
 
-	return panes + "\n" + footer
+	v := tea.NewView(panes + "\n" + footer)
+	v.AltScreen = true
+	return v
 }
 
 func (m model) renderFooter() string {
@@ -784,7 +784,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(initialModel(skills), tea.WithAltScreen())
+	p := tea.NewProgram(initialModel(skills))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
